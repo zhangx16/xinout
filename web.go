@@ -260,20 +260,20 @@ textarea:focus{outline:none;border-color:var(--accent)}
         </div>
         <div class="hint" id="availhint"></div>
       </label>
-      <label class="f" id="tplwrap">
-        <span>节点链接</span>
-        <select id="tpl"></select>
-        <div class="hint" id="tplhint"></div>
-      </label>
       <label class="f">
         <span>出口端口</span>
         <input id="wzport" type="text" inputmode="numeric" placeholder="SOCKS5 端口，留空随机">
         <div class="hint">开多条时从此端口依次加一</div>
       </label>
+      <label class="f" id="tplwrap">
+        <span>节点链接</span>
+        <select id="tpl"></select>
+        <div class="hint" id="tplhint"></div>
+      </label>
       <label class="f" id="wzinportwrap">
         <span>节点端口</span>
         <input id="wzinport" type="text" inputmode="numeric" placeholder="节点链接端口，留空随机">
-        <div class="hint">每个出口复制一份节点，端口依次加一</div>
+        <div class="hint">有节点模板时生效，开多条从此依次加一</div>
       </label>
     </div>
     <div class="foot">
@@ -901,8 +901,7 @@ function wizardPort(id){
   return v;
 }
 function syncWizardPorts(){
-  const tpl = $('#tpl').value || '0';
-  $('#wzinportwrap').hidden = isXCL() || tpl === '0';
+  $('#wzinportwrap').hidden = isXCL();
 }
 $('#tpl').onchange = syncWizardPorts;
 
@@ -912,7 +911,7 @@ $('#go').onclick = async e => {
   let port = '', inport = '';
   try{
     port = wizardPort('#wzport');
-    if(!$('#wzinportwrap').hidden) inport = wizardPort('#wzinport');
+    if(tpl !== '0') inport = wizardPort('#wzinport');
   }catch(err){ toast(err.message, true); return; }
   e.target.disabled = true;
   try{
