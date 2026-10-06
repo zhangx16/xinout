@@ -10,7 +10,7 @@
 
 四条隧道跑在一台机器上，四个端口对应四个国家的出口，母机自己的 IP 不受影响。
 
-管理界面默认端口为 **21680**（可用 `WEB_PORT` 或设置面板改成任意端口）。
+安装时会询问管理界面使用哪个端口。非交互安装可设环境变量 `WEB_PORT`。装完后也能在设置面板或 `xi` 菜单里改。
 
 ## 原理
 
@@ -32,10 +32,10 @@ SOCKS5 监听在母机，出站连接用 `setns` 切进对应 netns 建立。
 bash <(curl -fsSL https://raw.githubusercontent.com/zhangx16/xinout/main/install.sh)
 ```
 
-指定管理端口：
+脚本会询问管理端口。不想交互时直接指定：
 
 ```bash
-WEB_PORT=21680 bash <(curl -fsSL https://raw.githubusercontent.com/zhangx16/xinout/main/install.sh)
+WEB_PORT=12345 bash <(curl -fsSL https://raw.githubusercontent.com/zhangx16/xinout/main/install.sh)
 ```
 
 会自动下载对应架构的预编译二进制。也可以 clone 仓库后在源码目录运行同一个脚本，
@@ -63,7 +63,7 @@ Operation not permitted 的话，这台机器用不了，跟发行版无关。
 装完会打印管理界面地址、访问路径和口令：
 
 ```
-管理界面  http://<你的IP>:21680/gwPuWHvaNr/
+管理界面  http://<你的IP>:<端口>/gwPuWHvaNr/
 访问口令  f81120ac328d11c11b
 ```
 
@@ -146,7 +146,7 @@ xray-cf-lite 管，xinout 只负责给每个节点指定走哪条出口，所以
   版本      xinout v0.1.1
   开机自启  enabled
 
-  管理地址  http://1.2.3.4:21680/gwPuWHvaNr/
+  管理地址  http://1.2.3.4:<端口>/gwPuWHvaNr/
   访问口令  f81120ac328d11c11b
 
    1) 启动          2) 停止

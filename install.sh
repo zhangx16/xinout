@@ -6,9 +6,9 @@
 
 set -euo pipefail
 
-# 记下用户是否显式给了 WEB_PORT：重装时只有显式指定才覆盖已保存的端口
+# WEB_PORT 未在环境里给出时，下面 ask_web_port 会问使用者要哪个端口。
 WEB_PORT_EXPLICIT="${WEB_PORT:+1}"
-WEB_PORT="${WEB_PORT:-21680}"
+WEB_PORT="${WEB_PORT:-}"
 WORK_DIR="${WORK_DIR:-/var/lib/xinout}"
 BIN=/usr/local/bin/xinout
 
@@ -28,16 +28,79 @@ else
   exit 1
 fi
 
+# current_saved_port 读盘上已保存的管理端口，没有则空。
+current_saved_port() {
+  sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' \
+    "${WORK_DIR}/settings.json" 2>/dev/null | head -1
+}
+
+# port_in_use 端口是否已被占用。
+port_in_use() {
+  ss -tln 2>/dev/null | grep -qE ":${1}[[:space:]]" && return 0
+  return 1
+}
+
+# valid_port 1-65535 的十进制端口。
+valid_port() {
+  [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
+}
+
+# ask_web_port 决定管理端口：环境变量 WEB_PORT 优先；否则问使用者。
+# 重装时若盘上已有端口，回车表示沿用。
+ask_web_port() {
+  local saved=""
+  saved=$(current_saved_port)
+
+  if [[ -n "${WEB_PORT_EXPLICIT:-}" ]]; then
+    if ! valid_port "$WEB_PORT"; then
+      echo "WEB_PORT=${WEB_PORT} 不合法，需要 1-65535" >&2
+      exit 1
+    fi
+    echo "      使用指定端口 ${WEB_PORT}"
+    return
+  fi
+
+  if [[ ! -e /dev/tty ]]; then
+    echo "非交互安装请设置 WEB_PORT，例如: WEB_PORT=12345 bash install.sh" >&2
+    exit 1
+  fi
+
+  while true; do
+    local prompt="请输入管理端口 (1-65535)"
+    [[ -n $saved ]] && prompt="请输入管理端口 [当前 ${saved}，回车沿用]"
+    read -rp "${prompt}: " WEB_PORT </dev/tty || true
+    WEB_PORT="${WEB_PORT//[[:space:]]/}"
+    if [[ -z $WEB_PORT && -n $saved ]]; then
+      WEB_PORT="$saved"
+    fi
+    if ! valid_port "${WEB_PORT:-}"; then
+      echo "      端口不合法，请输入 1 到 65535 的数字"
+      WEB_PORT=""
+      continue
+    fi
+    WEB_PORT=$((10#$WEB_PORT))
+    if [[ -n $saved ]] && (( WEB_PORT == saved )); then
+      echo "      沿用端口 ${WEB_PORT}"
+      return
+    fi
+    if port_in_use "$WEB_PORT"; then
+      echo "      端口 ${WEB_PORT} 已被占用，换一个"
+      WEB_PORT=""
+      continue
+    fi
+    echo "      管理端口 ${WEB_PORT}"
+    return
+  done
+}
+
 # seed_settings 把端口落进 settings.json —— 程序、xi 菜单、Web 界面都以它为准。
-#
-# 重装时不覆盖用户已经改过的端口：除非这次显式指定了 WEB_PORT，
-# 否则沿用原值，免得重装一次把人家改好的端口打回默认。
+# 已有配置只改 port，其它字段原样保留。
 seed_settings() {
   local f="${WORK_DIR}/settings.json"
-  if [[ -f "$f" ]] && [[ -z "${WEB_PORT_EXPLICIT:-}" ]]; then
-    local cur
-    cur=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$f" | head -1)
-    [[ -n $cur ]] && { WEB_PORT="$cur"; return; }
+  if [[ -f "$f" ]] && grep -q '"port"' "$f"; then
+    sed -i "s/\"port\"[[:space:]]*:[[:space:]]*[0-9]*/\"port\": ${WEB_PORT}/" "$f"
+    chmod 600 "$f"
+    return
   fi
   printf '{\n  "port": %s,\n  "listen_addr": ""\n}\n' "$WEB_PORT" > "$f"
   chmod 600 "$f"
@@ -93,6 +156,9 @@ svc_is_active() {
 svc_logs_hint() {
   [[ "$INIT_SYS" == systemd ]] && echo "journalctl -u xinout -n 30" || echo "cat /var/log/xinout.log"
 }
+
+echo "管理端口"
+ask_web_port
 
 echo "[1/6] 检查依赖"
 
