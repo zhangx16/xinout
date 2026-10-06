@@ -176,7 +176,6 @@ pkg_for() {
     ip)       case "$mgr" in apk) echo iproute2 ;; pacman) echo iproute2 ;; *) echo iproute ;; esac ;;
     iptables) echo iptables ;;
     unzip)    echo unzip ;;
-    nsenter)  echo util-linux ;;
   esac
 }
 
@@ -207,7 +206,7 @@ MGR=$(detect_mgr)
 [[ "$MGR" == "apt-get" ]] && iproute_pkg=iproute2 || iproute_pkg=iproute
 
 need_cmd=()
-for c in openvpn curl openssl tar iptables nsenter; do
+for c in openvpn curl openssl tar iptables; do
   command -v "$c" >/dev/null || need_cmd+=("$c")
 done
 command -v ip >/dev/null || need_cmd+=(ip)

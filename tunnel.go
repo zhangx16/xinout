@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -136,8 +137,7 @@ func run(name string, args ...string) error {
 	return nil
 }
 
-// netnsPath 是 ip netns add 落下的句柄。Incus/LXC 里不要用 ip netns exec：
-// 它会尝试在 netns 里 mount /sys，被拒绝后直接退出 255，命令根本不跑。
+// netnsPath 是 ip netns add 落下的句柄。
 func netnsPath(ns string) string {
 	p := filepath.Join("/run/netns", ns)
 	if _, err := os.Stat(p); err == nil {
@@ -146,16 +146,52 @@ func netnsPath(ns string) string {
 	return filepath.Join("/var/run/netns", ns)
 }
 
+var (
+	nsExecOnce    sync.Once
+	nsExecNsenter bool
+)
+
+// chooseNsExec 探测本机该用 ip netns exec 还是 nsenter。
+// 普通系统走 ip netns exec；只有 Incus/LXC 那种会因 mount /sys 失败而
+// 直接退出 255 的环境才改用 nsenter，避免把所有机器都换成另一套路径。
+func chooseNsExec(ns string) {
+	nsExecOnce.Do(func() {
+		out, err := cmdCombined(exec.Command("ip", "netns", "exec", ns, "true"))
+		if err == nil {
+			return
+		}
+		if !strings.Contains(string(out), "mount of /sys") {
+			return
+		}
+		if _, lookErr := exec.LookPath("nsenter"); lookErr != nil {
+			log.Printf("ip netns exec 因无法挂载 /sys 失败，且找不到 nsenter")
+			return
+		}
+		nsExecNsenter = true
+		log.Printf("检测到 ip netns exec 受限（无法挂载 /sys），本机改用 nsenter")
+	})
+}
+
 func nsenterArgs(ns string, name string, args ...string) []string {
 	return append([]string{"--net=" + netnsPath(ns), "--", name}, args...)
 }
 
 func nsCmd(ns string, name string, args ...string) *exec.Cmd {
-	return exec.Command("nsenter", nsenterArgs(ns, name, args...)...)
+	chooseNsExec(ns)
+	if nsExecNsenter {
+		return exec.Command("nsenter", nsenterArgs(ns, name, args...)...)
+	}
+	a := append([]string{"netns", "exec", ns, name}, args...)
+	return exec.Command("ip", a...)
 }
 
 func runNs(ns string, name string, args ...string) error {
-	return run("nsenter", nsenterArgs(ns, name, args...)...)
+	chooseNsExec(ns)
+	if nsExecNsenter {
+		return run("nsenter", nsenterArgs(ns, name, args...)...)
+	}
+	a := append([]string{"netns", "exec", ns, name}, args...)
+	return run("ip", a...)
 }
 
 // runQuiet 执行清理类命令，忽略"本来就不存在"这类错误。

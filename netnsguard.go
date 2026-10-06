@@ -24,8 +24,8 @@ import (
 //
 // 所以凡是"在当前命名空间里生效"的命令——建 veth、改 iptables、开 sysctl、
 // 探母机公网 IP、拉起 Xray——都必须显式切回母机命名空间再执行。
-// 在 netns 里跑命令用 nsenter --net，不要用 ip netns exec：
-// Incus/LXC 里 ip netns exec 会去 mount /sys，失败就退出 255。
+// 在 netns 里跑命令默认仍用 ip netns exec；仅当它因无法 mount /sys
+// 失败时（Incus/LXC）才退回 nsenter，见 tunnel.go 的 chooseNsExec。
 
 // mainNetns 是 fanout 启动时所在的网络命名空间，全程持有不关闭。
 var mainNetns *os.File
