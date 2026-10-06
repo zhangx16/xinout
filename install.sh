@@ -29,15 +29,18 @@ else
 fi
 
 # current_saved_port 读盘上已保存的管理端口，没有则空。
+# 配置文件不存在时 sed 会非零退出，配合 set -o pipefail 会把整个安装打断，所以先判断文件。
 current_saved_port() {
-  sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' \
-    "${WORK_DIR}/settings.json" 2>/dev/null | head -1
+  local f="${WORK_DIR}/settings.json"
+  [[ -f "$f" ]] || return 0
+  sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$f" | head -1 || true
 }
 
-# port_in_use 端口是否已被占用。
+# port_in_use 端口是否已被占用。ss 还没装时不当占用。
 port_in_use() {
-  ss -tln 2>/dev/null | grep -qE ":${1}[[:space:]]" && return 0
-  return 1
+  command -v ss >/dev/null 2>&1 || return 1
+  ss -tln 2>/dev/null | grep -qE ":${1}[[:space:]]" || return 1
+  return 0
 }
 
 # valid_port 1-65535 的十进制端口。
@@ -48,9 +51,6 @@ valid_port() {
 # ask_web_port 决定管理端口：环境变量 WEB_PORT 优先；否则问使用者。
 # 重装时若盘上已有端口，回车表示沿用。
 ask_web_port() {
-  local saved=""
-  saved=$(current_saved_port)
-
   if [[ -n "${WEB_PORT_EXPLICIT:-}" ]]; then
     if ! valid_port "$WEB_PORT"; then
       echo "WEB_PORT=${WEB_PORT} 不合法，需要 1-65535" >&2
@@ -59,6 +59,9 @@ ask_web_port() {
     echo "      使用指定端口 ${WEB_PORT}"
     return
   fi
+
+  local saved=""
+  saved=$(current_saved_port || true)
 
   if [[ ! -e /dev/tty ]]; then
     echo "非交互安装请设置 WEB_PORT，例如: WEB_PORT=12345 bash install.sh" >&2
