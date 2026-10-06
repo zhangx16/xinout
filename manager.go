@@ -87,13 +87,14 @@ func (m *Manager) startWithPort(node Node, port int) (*Tunnel, error) {
 	for _, other := range m.tunnels {
 		taken[other.Port] = true
 	}
+	pinned := port != 0
 	if port == 0 {
 		port, err = freeRandomPort(taken)
 		if err != nil {
 			m.mu.Unlock()
 			return nil, err
 		}
-	} else if taken[port] || !portAvailable(port) {
+	} else if taken[port] {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("端口 %d 已被占用", port)
 	}
@@ -103,12 +104,13 @@ func (m *Manager) startWithPort(node Node, port int) (*Tunnel, error) {
 		return nil, err
 	}
 	t := &Tunnel{
-		Slot:   slot,
-		Port:   port,
-		Node:   node,
-		Status: "starting",
-		Since:  time.Now(),
-		Cred:   cred,
+		Slot:       slot,
+		Port:       port,
+		PortPinned: pinned,
+		Node:       node,
+		Status:     "starting",
+		Since:      time.Now(),
+		Cred:       cred,
 	}
 	m.tunnels[slot] = t
 	m.mu.Unlock()

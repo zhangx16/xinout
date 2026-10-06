@@ -86,13 +86,24 @@ func consecutivePorts(start, n int, taken map[int]bool) ([]int, error) {
 	}
 	for i := 0; i < n; i++ {
 		p := start + i
-		if local[p] || !portAvailable(p) {
+		if local[p] {
 			return nil, fmt.Errorf("端口 %d 已被占用", p)
 		}
+		// 用户指定的端口不再先 Listen 再关掉做探测：探测会把端口打进
+		// TIME_WAIT，随后真正监听失败，NAT 映射的端口就对不上。
 		local[p] = true
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// normalizeProvisionPorts 处理 NAT 场景：用户只填了一个对外端口且选了节点模板，
+// 这个端口必须给节点链接（客户端连它），SOCKS5 走本机随机，不必占面板放行的口。
+func normalizeProvisionPorts(req *ProvisionRequest) {
+	if req.TemplateID > 0 && req.InboundPort == 0 && req.SocksPort != 0 {
+		req.InboundPort = req.SocksPort
+		req.SocksPort = 0
+	}
 }
 
 // portsOverlap 判断两段闭区间是否相交。start 为 0 表示该段未指定，不相交。

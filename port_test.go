@@ -61,15 +61,16 @@ func TestConsecutivePortsExact(t *testing.T) {
 	}
 }
 
-func TestConsecutivePortsOccupied(t *testing.T) {
-	ln, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		t.Fatal(err)
+func TestNormalizeProvisionPorts(t *testing.T) {
+	req := ProvisionRequest{TemplateID: 7, SocksPort: 21683}
+	normalizeProvisionPorts(&req)
+	if req.InboundPort != 21683 || req.SocksPort != 0 {
+		t.Fatalf("有模板时单端口应给节点: %+v", req)
 	}
-	defer ln.Close()
-	p := ln.Addr().(*net.TCPAddr).Port
-	if _, err := consecutivePorts(p, 1, nil); err == nil {
-		t.Fatal("占用中的端口应当报错")
+	req = ProvisionRequest{SocksPort: 21683}
+	normalizeProvisionPorts(&req)
+	if req.SocksPort != 21683 || req.InboundPort != 0 {
+		t.Fatalf("无模板时应保持 SOCKS 端口: %+v", req)
 	}
 }
 

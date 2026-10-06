@@ -39,6 +39,7 @@ func (m *Manager) Provision(req ProvisionRequest) (*Job, error) {
 			return nil, fmt.Errorf("节点端口: %w", err)
 		}
 	}
+	normalizeProvisionPorts(&req)
 	if req.TemplateID > 0 && portsOverlap(req.SocksPort, req.Count, req.InboundPort, req.Count) {
 		return nil, fmt.Errorf("出口端口和节点端口区间重叠")
 	}

@@ -246,6 +246,9 @@ func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunne
 	if err != nil {
 		return nil, err
 	}
+	for _, p := range ports {
+		ensureTCPPortOpen(p)
+	}
 	pi := 0
 
 	created := []int{}
@@ -510,6 +513,7 @@ func (n *Native) CreateInbound(spec NewInboundSpec, tunnels []*Tunnel) (*Created
 
 	n.store.NextID++
 	n.store.Inbounds = append(n.store.Inbounds, ib)
+	ensureTCPPortOpen(port)
 
 	if err := n.apply(tunnels); err != nil {
 		// 起不来就别把坏入站留在库里

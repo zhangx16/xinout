@@ -30,6 +30,9 @@ type Tunnel struct {
 	Err    string    `json:"err,omitempty"`
 	Since  time.Time `json:"since"`
 	Cred   SocksCred `json:"cred"`
+	// PortPinned 表示 SOCKS5 端口是用户指定的。失败时不能改成随机口，
+	// 否则 NAT 面板放行的端口会对不上，客户端连的还是旧口。
+	PortPinned bool `json:"port_pinned,omitempty"`
 
 	ns       string
 	listener net.Listener
@@ -271,24 +274,30 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 // 监听必须留在母机侧：netns 内的 loopback 与母机彼此独立，
 // 监听在 netns 里的话外部根本连不上。
 func (t *Tunnel) serve() error {
+	ensureTCPPortOpen(t.Port)
 	// 端口要尽量保持不变，否则用户已经分发出去的客户端配置会失效。
 	// 进程刚重启时旧监听可能还在 TIME_WAIT，这里给几秒重试窗口。
+	// 用 tcp4：部分 NAT 小鸡 IPv6 半残，Listen("tcp") 落到 :: 后 IPv4 连不进来。
 	var ln net.Listener
 	var err error
-	for i := 0; i < 6; i++ {
-		ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", t.Port))
+	addr := fmt.Sprintf("0.0.0.0:%d", t.Port)
+	for i := 0; i < 8; i++ {
+		ln, err = net.Listen("tcp4", addr)
 		if err == nil {
 			break
 		}
 		time.Sleep(time.Second)
 	}
 	if err != nil {
-		// 确实被别的进程长期占用了，才换端口
+		if t.PortPinned {
+			return fmt.Errorf("指定端口 %d 监听失败（NAT 请确认面板已放行该端口且本机未被占用）: %w", t.Port, err)
+		}
+		// 随机分配的口被长期占用才换，用户指定的口绝不能改
 		port, perr := freeRandomPort(map[int]bool{t.Port: true})
 		if perr != nil {
 			return fmt.Errorf("监听 %d 失败且无备用端口: %w", t.Port, err)
 		}
-		ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+		ln, err = net.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", port))
 		if err != nil {
 			return fmt.Errorf("监听 %d 失败: %w", port, err)
 		}

@@ -82,6 +82,11 @@ func TestProvisionRejectsBadPort(t *testing.T) {
 	if _, err := m.Provision(ProvisionRequest{Count: 2, TemplateID: 1, SocksPort: 10000, InboundPort: 10001}); err == nil {
 		t.Fatal("出口/节点端口重叠应当报错")
 	}
+	req := ProvisionRequest{Count: 1, Region: "JP", TemplateID: 1, SocksPort: 21683}
+	normalizeProvisionPorts(&req)
+	if req.InboundPort != 21683 || req.SocksPort != 0 {
+		t.Fatalf("NAT 单端口应落到节点: %+v", req)
+	}
 }
 
 func TestFirstLine(t *testing.T) {

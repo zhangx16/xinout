@@ -262,8 +262,8 @@ textarea:focus{outline:none;border-color:var(--accent)}
       </label>
       <label class="f">
         <span>出口端口</span>
-        <input id="wzport" type="text" inputmode="numeric" placeholder="SOCKS5 端口，留空随机">
-        <div class="hint">开多条时从此端口依次加一</div>
+        <input id="wzport" type="text" inputmode="numeric" placeholder="NAT 填面板放行的端口，留空随机">
+        <div class="hint">有节点模板时这个口给节点链接（对外）；只用 SOCKS5 时才绑到出口。开多条依次加一</div>
       </label>
       <label class="f" id="tplwrap">
         <span>节点链接</span>
@@ -272,8 +272,8 @@ textarea:focus{outline:none;border-color:var(--accent)}
       </label>
       <label class="f" id="wzinportwrap">
         <span>节点端口</span>
-        <input id="wzinport" type="text" inputmode="numeric" placeholder="节点链接端口，留空随机">
-        <div class="hint">有节点模板时生效，开多条从此依次加一</div>
+        <input id="wzinport" type="text" inputmode="numeric" placeholder="可留空，沿用上面的对外端口">
+        <div class="hint">客户端连这个口。NAT 机器请填面板放行的端口</div>
       </label>
     </div>
     <div class="foot">
@@ -911,7 +911,11 @@ $('#go').onclick = async e => {
   let port = '', inport = '';
   try{
     port = wizardPort('#wzport');
-    if(tpl !== '0') inport = wizardPort('#wzinport');
+    if(tpl !== '0'){
+      inport = wizardPort('#wzinport');
+      // NAT 只填了一个口：给节点对外端口，SOCKS 走本机随机
+      if(!inport && port){ inport = port; port = ''; }
+    }
   }catch(err){ toast(err.message, true); return; }
   e.target.disabled = true;
   try{

@@ -669,6 +669,9 @@ func (x *XUI) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel, 
 	if err != nil {
 		return nil, err
 	}
+	for _, p := range ports {
+		ensureTCPPortOpen(p)
+	}
 	pi := 0
 
 	created := []int{}
@@ -1580,6 +1583,7 @@ func (x *XUI) CreateInbound(spec NewInboundSpec, tunnels []*Tunnel) (*CreatedInb
 	if err != nil {
 		return nil, err
 	}
+	ensureTCPPortOpen(ns.Port)
 
 	// 借用自建模式那套入站描述来生成 streamSettings：TLS 自签证书、
 	// REALITY 密钥的生成逻辑两种后端完全一样，没必要写第二份。

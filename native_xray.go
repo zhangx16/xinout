@@ -144,7 +144,7 @@ func nativeInboundJSON(ib *nativeInbound) map[string]any {
 
 	return map[string]any{
 		"tag":            ib.tag(),
-		"listen":         "0.0.0.0",
+		"listen":         "0.0.0.0", // tcp4 对外；NAT DNAT 到内网 IP 也能打到
 		"port":           ib.Port,
 		"protocol":       ib.Protocol,
 		"settings":       settings,
