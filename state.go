@@ -34,6 +34,8 @@ func statePath(dir string) string { return filepath.Join(dir, "state.json") }
 
 // saveState 把当前隧道写入磁盘，供重启后恢复。
 func (m *Manager) saveState() error {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	var st persistedState
 	for _, t := range m.Tunnels() {
 		// 只跳过用户主动停掉的。starting/failed 的隧道也要存：

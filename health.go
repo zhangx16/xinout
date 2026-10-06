@@ -2,7 +2,7 @@ package main
 
 import (
 	"log"
-	"os/exec"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -48,7 +48,7 @@ func (m *Manager) WatchHealth() {
 // openvpn 死掉后照样能出网，只是出口变回了母机 IP。
 // 所以要比对出口 IP 是否仍是建立隧道时拿到的那个。
 func (m *Manager) tunnelHealthy(t *Tunnel) bool {
-	out, err := cmdOutput(exec.Command("ip", "netns", "exec", t.nsName(),
+	out, err := cmdOutput(nsCmd(t.nsName(),
 		"curl", "-s", "--max-time", strconv.Itoa(int(healthTimeout.Seconds())),
 		"http://api.ipify.org"))
 	if err != nil {
@@ -57,6 +57,9 @@ func (m *Manager) tunnelHealthy(t *Tunnel) bool {
 	got := strings.TrimSpace(string(out))
 	if got == "" {
 		return false
+	}
+	if t.ExitIP == "" {
+		return net.ParseIP(got) != nil && got != hostPublicIP()
 	}
 	// 出口 IP 变了说明 VPN 已经断开，流量退回了母机
 	return got == t.ExitIP

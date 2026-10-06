@@ -136,6 +136,28 @@ func run(name string, args ...string) error {
 	return nil
 }
 
+// netnsPath 是 ip netns add 落下的句柄。Incus/LXC 里不要用 ip netns exec：
+// 它会尝试在 netns 里 mount /sys，被拒绝后直接退出 255，命令根本不跑。
+func netnsPath(ns string) string {
+	p := filepath.Join("/run/netns", ns)
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return filepath.Join("/var/run/netns", ns)
+}
+
+func nsenterArgs(ns string, name string, args ...string) []string {
+	return append([]string{"--net=" + netnsPath(ns), "--", name}, args...)
+}
+
+func nsCmd(ns string, name string, args ...string) *exec.Cmd {
+	return exec.Command("nsenter", nsenterArgs(ns, name, args...)...)
+}
+
+func runNs(ns string, name string, args ...string) error {
+	return run("nsenter", nsenterArgs(ns, name, args...)...)
+}
+
 // runQuiet 执行清理类命令，忽略"本来就不存在"这类错误。
 func runQuiet(name string, args ...string) {
 	_ = cmdRun(exec.Command(name, args...))
@@ -151,7 +173,7 @@ func (t *Tunnel) setupNetns() error {
 	if err := run("ip", "netns", "add", ns); err != nil {
 		return err
 	}
-	if err := run("ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"); err != nil {
+	if err := runNs(ns, "ip", "link", "set", "lo", "up"); err != nil {
 		return err
 	}
 	if err := run("ip", "link", "add", veth, "type", "veth", "peer", "name", peer); err != nil {
@@ -166,13 +188,13 @@ func (t *Tunnel) setupNetns() error {
 	if err := run("ip", "link", "set", veth, "up"); err != nil {
 		return err
 	}
-	if err := run("ip", "netns", "exec", ns, "ip", "addr", "add", sub+".2/30", "dev", peer); err != nil {
+	if err := runNs(ns, "ip", "addr", "add", sub+".2/30", "dev", peer); err != nil {
 		return err
 	}
-	if err := run("ip", "netns", "exec", ns, "ip", "link", "set", peer, "up"); err != nil {
+	if err := runNs(ns, "ip", "link", "set", peer, "up"); err != nil {
 		return err
 	}
-	if err := run("ip", "netns", "exec", ns, "ip", "route", "add", "default", "via", sub+".1"); err != nil {
+	if err := runNs(ns, "ip", "route", "add", "default", "via", sub+".1"); err != nil {
 		return err
 	}
 
@@ -214,6 +236,10 @@ func ensureRuleInsert(table, chain string, spec ...string) {
 }
 
 func (t *Tunnel) teardownNetns() {
+	if t.ovpn != nil && t.ovpn.Process != nil {
+		_ = t.ovpn.Process.Kill()
+		t.ovpn = nil
+	}
 	ns, sub := t.nsName(), t.subnet()
 	cidr := sub + ".0/30"
 	veth, _ := t.vethNames()
@@ -237,7 +263,7 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 	}
 
 	logPath := filepath.Join(dir, ns+".log")
-	cmd := exec.Command("ip", "netns", "exec", ns, "openvpn",
+	cmd := nsCmd(ns, "openvpn",
 		"--config", cfgPath,
 		"--auth-user-pass", authPath,
 		"--auth-nocache",
@@ -255,9 +281,9 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 	go cmd.Wait() // 回收子进程，避免僵尸
 
 	// openvpn 建好 tun0 前 SOCKS5 无法正常出网，这里等它就绪
-	deadline := time.Now().Add(40 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
-		if out, err := cmdOutput(exec.Command("ip", "netns", "exec", ns, "ip", "-4", "addr", "show", "tun0")); err == nil {
+		if out, err := cmdOutput(nsCmd(ns, "ip", "-4", "addr", "show", "tun0")); err == nil {
 			if strings.Contains(string(out), "inet ") {
 				return nil
 			}
@@ -337,16 +363,29 @@ func (t *Tunnel) setCredential(c SocksCred) {
 
 // probeExitIP 通过隧道查询出口 IP，用于确认这条隧道确实换了 IP。
 func (t *Tunnel) probeExitIP() (string, error) {
-	out, err := cmdOutput(exec.Command("ip", "netns", "exec", t.nsName(),
-		"curl", "-s", "--max-time", "15", "http://api.ipify.org"))
-	if err != nil {
-		return "", fmt.Errorf("查询出口 IP 失败: %w", err)
+	urls := []string{
+		"http://api.ipify.org",
+		"http://ipv4.icanhazip.com",
+		"http://ifconfig.me/ip",
 	}
-	ip := strings.TrimSpace(string(out))
-	if net.ParseIP(ip) == nil {
-		return "", fmt.Errorf("出口 IP 返回异常: %q", ip)
+	var last error
+	for _, url := range urls {
+		out, err := cmdOutput(nsCmd(t.nsName(),
+			"curl", "-4", "-s", "--max-time", "8", url))
+		if err != nil {
+			last = err
+			continue
+		}
+		ip := strings.TrimSpace(string(out))
+		if parsed := net.ParseIP(ip); parsed != nil && parsed.To4() != nil {
+			return ip, nil
+		}
+		last = fmt.Errorf("出口 IP 返回异常: %q", ip)
 	}
-	return ip, nil
+	if last == nil {
+		last = fmt.Errorf("查询出口 IP 失败")
+	}
+	return "", last
 }
 
 // stop 停止这条隧道并清理它占用的所有资源。

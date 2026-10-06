@@ -12,6 +12,7 @@ import (
 // Manager 维护所有隧道，负责分配槽位与端口。
 type Manager struct {
 	mu       sync.RWMutex
+	stateMu  sync.Mutex
 	tunnels  map[int]*Tunnel
 	nodes    []Node
 	fetched  time.Time
@@ -242,7 +243,11 @@ func (m *Manager) tryNode(t *Tunnel) error {
 	}
 	ip, err := t.probeExitIP()
 	if err != nil {
-		return err
+		// tun0 已经起来就视为成功。部分 VPN Gate 节点拦 ipify，
+		// 为此拆掉隧道的话 NAT 上指定的端口会空转，客户端连不上。
+		log.Printf("隧道 %d tun0 已就绪，出口 IP 暂未探测到: %v", t.Slot, err)
+		t.ExitIP = ""
+		return nil
 	}
 	t.ExitIP = ip
 	return nil
