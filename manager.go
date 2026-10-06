@@ -70,23 +70,32 @@ func (m *Manager) freeSlot() (int, error) {
 	return 0, fmt.Errorf("槽位已满（上限 %d）", m.maxSlots)
 }
 
-// Start 为指定节点开一条隧道，返回分配到的本地端口。
+// Start 为指定节点开一条隧道，SOCKS5 端口随机分配。
 func (m *Manager) Start(node Node) (*Tunnel, error) {
+	return m.startWithPort(node, 0)
+}
+
+// startWithPort 开一条隧道。port 为 0 时随机分配 SOCKS5 端口，否则用指定端口。
+func (m *Manager) startWithPort(node Node, port int) (*Tunnel, error) {
 	m.mu.Lock()
 	slot, err := m.freeSlot()
 	if err != nil {
 		m.mu.Unlock()
 		return nil, err
 	}
-	// 端口随机取，避免固定规律撞上机器上的其他服务
 	taken := map[int]bool{}
 	for _, other := range m.tunnels {
 		taken[other.Port] = true
 	}
-	port, err := freeRandomPort(taken)
-	if err != nil {
+	if port == 0 {
+		port, err = freeRandomPort(taken)
+		if err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+	} else if taken[port] || !portAvailable(port) {
 		m.mu.Unlock()
-		return nil, err
+		return nil, fmt.Errorf("端口 %d 已被占用", port)
 	}
 	cred, err := newSocksCred()
 	if err != nil {

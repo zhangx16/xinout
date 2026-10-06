@@ -74,6 +74,16 @@ func TestJobLifecycle(t *testing.T) {
 	}
 }
 
+func TestProvisionRejectsBadPort(t *testing.T) {
+	m := mgrWith(sample)
+	if _, err := m.Provision(ProvisionRequest{Count: 1, SocksPort: 70000}); err == nil {
+		t.Fatal("非法出口端口应当报错")
+	}
+	if _, err := m.Provision(ProvisionRequest{Count: 2, TemplateID: 1, SocksPort: 10000, InboundPort: 10001}); err == nil {
+		t.Fatal("出口/节点端口重叠应当报错")
+	}
+}
+
 func TestFirstLine(t *testing.T) {
 	if got := firstLine("第一行\n第二行"); got != "第一行" {
 		t.Fatalf("firstLine = %q", got)

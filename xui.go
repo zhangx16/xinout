@@ -626,7 +626,7 @@ func (x *XUI) syncOutbounds(setting map[string]any, tunnels []*Tunnel) {
 //
 // 复制时必须换掉端口、备注，以及客户端的 id/email —— 这些在面板里要求唯一。
 // 返回新建入站的端口列表。
-func (x *XUI) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel) ([]int, error) {
+func (x *XUI) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel, startPort int) ([]int, error) {
 	raw, err := x.rawInbound(templateID)
 	if err != nil {
 		return nil, err
@@ -655,6 +655,22 @@ func (x *XUI) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel) 
 		}
 	}
 
+	need := 0
+	for _, host := range hosts {
+		t := byHost[host]
+		if t != nil && t.Status == "up" {
+			need++
+		}
+	}
+	if need == 0 {
+		return nil, fmt.Errorf("没有可用的隧道")
+	}
+	ports, err := consecutivePorts(startPort, need, used)
+	if err != nil {
+		return nil, err
+	}
+	pi := 0
+
 	created := []int{}
 	for _, host := range hosts {
 		t := byHost[host]
@@ -662,10 +678,8 @@ func (x *XUI) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel) 
 			continue
 		}
 
-		port, err := freeRandomPort(used)
-		if err != nil {
-			return created, err
-		}
+		port := ports[pi]
+		pi++
 		used[port] = true
 
 		clone, err := cloneInboundPayload(raw, port, t)

@@ -15,6 +15,10 @@ type ProvisionRequest struct {
 	TemplateID int // 3x-ui 入站模板；0 表示只开隧道不建入站
 	// EveryRegion 表示每个有节点的国家都来 Count 个，此时 Region 被忽略。
 	EveryRegion bool
+	// SocksPort 是 SOCKS5 起始端口，0 表示每条随机。开多条时从此依次加一。
+	SocksPort int
+	// InboundPort 是复制节点链接的起始端口，0 表示随机。仅 TemplateID>0 时有意义。
+	InboundPort int
 }
 
 // Provision 异步执行一次批量开出口，立刻返回作业句柄供界面轮询。
@@ -24,6 +28,19 @@ type ProvisionRequest struct {
 func (m *Manager) Provision(req ProvisionRequest) (*Job, error) {
 	if req.Count < 1 {
 		return nil, fmt.Errorf("数量至少为 1")
+	}
+	if req.SocksPort != 0 {
+		if err := validatePort(req.SocksPort); err != nil {
+			return nil, fmt.Errorf("出口端口: %w", err)
+		}
+	}
+	if req.InboundPort != 0 {
+		if err := validatePort(req.InboundPort); err != nil {
+			return nil, fmt.Errorf("节点端口: %w", err)
+		}
+	}
+	if req.TemplateID > 0 && portsOverlap(req.SocksPort, req.Count, req.InboundPort, req.Count) {
+		return nil, fmt.Errorf("出口端口和节点端口区间重叠")
 	}
 	var picks []Node
 	var err error
@@ -55,18 +72,30 @@ func (m *Manager) Provision(req ProvisionRequest) (*Job, error) {
 	}
 	job := m.jobs.New(title, labels)
 
-	go m.runProvision(job, picks, req.TemplateID)
+	go m.runProvision(job, picks, req)
 	return job, nil
 }
 
-func (m *Manager) runProvision(job *Job, picks []Node, templateID int) {
+func (m *Manager) runProvision(job *Job, picks []Node, req ProvisionRequest) {
 	defer job.Finish()
+
+	taken := map[int]bool{}
+	m.mu.RLock()
+	for _, t := range m.tunnels {
+		taken[t.Port] = true
+	}
+	m.mu.RUnlock()
+	socksPorts, err := consecutivePorts(req.SocksPort, len(picks), taken)
+	if err != nil {
+		job.Set(0, "failed", err.Error())
+		return
+	}
 
 	var wg sync.WaitGroup
 	started := make([]*Tunnel, len(picks))
 
 	for i, node := range picks {
-		t, err := m.Start(node)
+		t, err := m.startWithPort(node, socksPorts[i])
 		if err != nil {
 			job.Set(i, "failed", err.Error())
 			continue
@@ -87,7 +116,7 @@ func (m *Manager) runProvision(job *Job, picks []Node, templateID int) {
 	}
 	wg.Wait()
 
-	if templateID <= 0 {
+	if req.TemplateID <= 0 {
 		return
 	}
 
@@ -109,7 +138,7 @@ func (m *Manager) runProvision(job *Job, picks []Node, templateID int) {
 		job.Set(step, "failed", err.Error())
 		return
 	}
-	ports, err := x.CloneToTunnels(templateID, hosts, m.Tunnels())
+	ports, err := x.CloneToTunnels(req.TemplateID, hosts, m.Tunnels(), req.InboundPort)
 	invalidateInbounds()
 	if err != nil {
 		job.Set(step, "failed", firstLine(err.Error()))

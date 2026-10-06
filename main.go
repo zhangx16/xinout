@@ -447,9 +447,21 @@ func apiProvision(m *Manager) http.HandlerFunc {
 				return
 			}
 		}
+		socksPort, err := parseOptionalPort(q.Get("port"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "出口端口不合法"})
+			return
+		}
+		inPort, err := parseOptionalPort(q.Get("inport"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "节点端口不合法"})
+			return
+		}
 		job, err := m.Provision(ProvisionRequest{
 			Region: q.Get("region"), Count: count, TemplateID: tpl,
 			EveryRegion: q.Get("every") == "1",
+			SocksPort:   socksPort,
+			InboundPort: inPort,
 		})
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -618,7 +630,12 @@ func apiXUIClone(m *Manager) http.HandlerFunc {
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
-		ports, err := x.CloneToTunnels(id, hosts, tunnels)
+		startPort, err := parseOptionalPort(r.URL.Query().Get("port"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "端口不合法"})
+			return
+		}
+		ports, err := x.CloneToTunnels(id, hosts, tunnels, startPort)
 		invalidateInbounds()
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "created": ports})

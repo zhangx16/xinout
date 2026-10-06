@@ -265,6 +265,16 @@ textarea:focus{outline:none;border-color:var(--accent)}
         <select id="tpl"></select>
         <div class="hint" id="tplhint"></div>
       </label>
+      <label class="f">
+        <span>出口端口</span>
+        <input id="wzport" type="text" inputmode="numeric" placeholder="SOCKS5 端口，留空随机">
+        <div class="hint">开多条时从此端口依次加一</div>
+      </label>
+      <label class="f" id="wzinportwrap">
+        <span>节点端口</span>
+        <input id="wzinport" type="text" inputmode="numeric" placeholder="节点链接端口，留空随机">
+        <div class="hint">每个出口复制一份节点，端口依次加一</div>
+      </label>
     </div>
     <div class="foot">
       <span class="count" id="wzhint"></span>
@@ -754,6 +764,7 @@ async function loadWizard(){
   // xray-cf-lite 模式不能复制节点，向导退化成"只开出口"，之后在节点详情里挑出口
   if(isXCL()){
     $('#tplwrap').hidden = true;
+    $('#wzinportwrap').hidden = true;
     sel.innerHTML = '<option value="0">只开出口，不建节点</option>';
     return;
   }
@@ -782,6 +793,7 @@ async function loadWizard(){
     sel.innerHTML = '<option value="0">' + backendName() + '不可用</option>';
     $('#tplhint').textContent = e.message;
   }
+  syncWizardPorts();
 }
 
 document.addEventListener('click', e => {
@@ -880,15 +892,38 @@ function step(d){
 }
 $('#count').oninput = updateAvail;
 
+function wizardPort(id){
+  const v = ($(id).value || '').trim();
+  if(!v) return '';
+  if(!/^[0-9]+$/.test(v) || +v < 1 || +v > 65535){
+    throw new Error('端口不合法，需要 1-65535');
+  }
+  return v;
+}
+function syncWizardPorts(){
+  const tpl = $('#tpl').value || '0';
+  $('#wzinportwrap').hidden = isXCL() || tpl === '0';
+}
+$('#tpl').onchange = syncWizardPorts;
+
 $('#go').onclick = async e => {
   const want = Math.min(Number($('#count').value) || 1, availOf(region) || 1);
   const tpl = $('#tpl').value || '0';
+  let port = '', inport = '';
+  try{
+    port = wizardPort('#wzport');
+    if(!$('#wzinportwrap').hidden) inport = wizardPort('#wzinport');
+  }catch(err){ toast(err.message, true); return; }
   e.target.disabled = true;
   try{
     await api('/api/provision?count=' + want
       + (region === '*' ? '&every=1' : '&region=' + encodeURIComponent(region))
-      + '&template=' + tpl, {method:'POST'});
+      + '&template=' + tpl
+      + (port ? '&port=' + port : '')
+      + (inport ? '&inport=' + inport : ''), {method:'POST'});
     closeModal('wizard');
+    $('#wzport').value = '';
+    $('#wzinport').value = '';
     poll();
   }catch(err){ toast(err.message, true); }
   e.target.disabled = false;

@@ -212,7 +212,7 @@ func (n *Native) ResyncOutbound(t *Tunnel, tunnels []*Tunnel) error {
 // CloneToTunnels 以某个入站为模板，为每条指定隧道复制一个入站并绑好出口。
 //
 // 客户端凭据整套沿用模板：同一个 UUID 能走所有出口，用户只改端口。
-func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel) ([]int, error) {
+func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel, startPort int) ([]int, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -232,16 +232,30 @@ func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunne
 	for _, ib := range n.store.Inbounds {
 		takenRemarks[strings.TrimSpace(ib.Remark)] = true
 	}
+	need := 0
+	for _, host := range hosts {
+		t := byHost[host]
+		if t != nil && t.Status == "up" {
+			need++
+		}
+	}
+	if need == 0 {
+		return nil, fmt.Errorf("没有可用的隧道")
+	}
+	ports, err := consecutivePorts(startPort, need, used)
+	if err != nil {
+		return nil, err
+	}
+	pi := 0
+
 	created := []int{}
 	for _, host := range hosts {
 		t := byHost[host]
 		if t == nil || t.Status != "up" {
 			continue
 		}
-		port, err := freeRandomPort(used)
-		if err != nil {
-			return created, err
-		}
+		port := ports[pi]
+		pi++
 		used[port] = true
 
 		remark := uniqueRemark(exitLabel(t), takenRemarks)
